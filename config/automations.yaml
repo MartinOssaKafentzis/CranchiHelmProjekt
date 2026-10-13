@@ -1,0 +1,69 @@
+- alias: 'Boot: GPS Track Punkt erfassen'
+  trigger:
+  - platform: time_pattern
+    seconds: /10
+  condition:
+  - condition: state
+    entity_id: input_boolean.route_recording
+    state: 'on'
+  action:
+  - service: system_log.write
+    data:
+      message: 'GPS Trackpoint erfasst: {{ states(''sensor.cranchi_helm_node_gps_latitude'')
+        }}, {{ states(''sensor.cranchi_helm_node_gps_longitude'') }}'
+  id: 19efccd08e9448e39b38aaf99bb5b183
+- alias: 'Boot: Route Stoppen und an Synology senden'
+  trigger:
+  - platform: state
+    entity_id: input_button.route_stop
+  action:
+  - service: input_boolean.turn_off
+    target:
+      entity_id: input_boolean.route_recording
+  - service: shell_command.save_route_to_synology
+  id: 147bf92bacda41abb34b69426c0219da
+- alias: 'Marine: Routenaufzeichnung Steuerung'
+  description: Startet und stoppt die Aufzeichnung der gefahrenen Route
+  trigger:
+  - platform: state
+    entity_id: input_boolean.route_recording
+    to: 'on'
+    id: start_recording
+  - platform: state
+    entity_id: input_button.route_stop
+    id: stop_recording
+  action:
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: start_recording
+      sequence:
+      - service: persistent_notification.create
+        data:
+          title: Route
+          message: Routenaufzeichnung gestartet.
+    - conditions:
+      - condition: trigger
+        id: stop_recording
+      sequence:
+      - service: input_boolean.turn_off
+        target:
+          entity_id: input_boolean.route_recording
+      - service: persistent_notification.create
+        data:
+          title: Route
+          message: Routenaufzeichnung gestoppt und gespeichert.
+  mode: single
+  id: 6cd427069b8545448d4ec65260fb46e6
+- id: '1789162271386'
+  alias: 'Boot: Steuerstand Display-Helligkeit'
+  description: Regelt den GreenTouch Monitor basierend auf dem berechneten Helligkeitssensor.
+  triggers:
+  - entity_id: sensor.steuerstand_display_zielhelligkeit
+    trigger: state
+  conditions: []
+  actions:
+  - action: shell_command.set_helm_display_brightness
+    data:
+      brightness: '{{ states(''sensor.steuerstand_display_zielhelligkeit'') }}'
+  mode: restart

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no" />
+  <meta name="referrer" content="no-referrer-when-downgrade" />
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <style>
+    /* Absolute Touch-Sperre für das Dokument */
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #1a1a1a;
+      overflow: hidden !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overscroll-behavior: none !important;
+      overscroll-behavior-y: none !important;
+      touch-action: none !important;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      touch-action: pinch-zoom;
+    }
+
+    /* ==========================================================
+       1. NAV-BUTTONS (oben rechts)
+       ================================================---------- */
+    .nav-buttons {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 32px; /* Abstand zwischen den Buttons */
+    }
+    .nav-btn {
+      width: 64px;
+      height: 64px;
+      background: #c88a2b;
+      border: 2px solid rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .nav-btn:active {
+      background: #a87220;
+    }
+    .nav-btn svg {
+      width: 48px;
+      height: 48px;
+      fill: #1e293b;
+    }
+
+    /* ==========================================================
+       2. LEAFLET ZOOM-BUTTONS (oben links) - ANGEPASST
+       ================================================---------- */
+    /* Den Leaflet-Standard-Container-Abstand und Rahmen zurücksetzen */
+    .leaflet-container {
+      zoom: 2;
+    }
+
+    .leaflet-top.leaflet-left {
+      top: 6px;
+      left: 6px;
+    }
+
+    .leaflet-control-zoom {
+      border: none !important;
+      box-shadow: none !important;
+      margin: 0 !important; /* Wichtig: Leaflet fügt hier oft standardmäßig 10px ein */
+      display: flex;
+      flex-direction: column;
+      gap: 16px !important; /* Exakt derselbe Abstand wie rechts! */
+    }
+
+    .leaflet-control-zoom a {
+      width: 32px !important;
+      height: 32px !important;
+      line-height: 32px !important;
+      font-size: 18px !important; /* Etwas verkleinert, damit +/- gut zentriert ist */
+      font-weight: bold !important;
+      color: #1e293b !important;
+      background: #c88a2b !important;
+      border: 1px solid rgba(0, 0, 0, 0.2) !important;
+      border-radius: 3px !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      margin: 0 !important; /* Interne Leaflet-Margins killen */
+    }
+
+    /* Überschreibt Leaflet-Styles für den unteren Zoom-Button (damit keine Border-Kombis greifen) */
+    .leaflet-control-zoom-in,
+    .leaflet-control-zoom-out {
+      border-bottom: 1px solid rgba(0, 0, 0, 0.2) !important;
+      /* Verhindert das Mitziehen der URL / des Textes */
+      -webkit-user-drag: none;
+      -khtml-user-drag: none;
+      -moz-user-drag: none;
+      -o-user-drag: none;
+      user-select: none;
+    }
+
+    .leaflet-control-zoom a:active {
+      background: #a87220 !important;
+    }
+
+    /* Zoom-Anzeige unten links */
+    .zoom-display {
+      background: rgba(255, 255, 255, 0.8);
+      padding: 0 5px;
+      color: #333;
+      font: 8px "Helvetica Neue", Arial, Helvetica, sans-serif;
+      margin: 0 !important;
+      box-shadow: none;
+      border-radius: 0;
+    }
+
+    .leaflet-popup-content, 
+    .leaflet-control-attribution,
+    .leaflet-control-zoom {
+      font-size: 8px !important; /* Hier die gewünschte Schriftgröße einstellen */
+    }
+
+    /* Falls du OpenSeaMap-Textlabels direkt erreichst (z.B. über SVG-Kartenlayer): */
+    .leaflet-pane svg text {
+      font-size: 8px !important;
+    }
+
+    .nav-arrow-icon {
+      background: transparent;
+      border: none;
+      width: 24px !important;  /* Muss exakt zur iconSize im JS passen */
+      height: 24px !important; /* Muss exakt zur iconSize im JS passen */
+      margin-left: -12px !important; /* Die Hälfte von 32 für den perfekten Anker */
+      margin-top: -12px !important;  /* Die Hälfte von 32 für den perfekten Anker */
+      transform-origin: center center !important;
+    }
+
+    .nav-arrow-icon svg {
+      width: 100%;
+      height: 100%;
+      filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));
+    }
+
+  </style>
+</head>
+
+<body>
+
+  <div id="map"></div>
+
+  <!-- Zentrier-Buttons -->
+  <div class="nav-buttons">
+    <button class="nav-btn" onclick="moveToPosition()" title="Boot zentrieren">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10 10-4.49 10-10S17.51 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+      </svg>
+    </button>
+    <button class="nav-btn" onclick="moveToTarget()" title="Ziel zentrieren">
+      <svg viewBox="0 0 24 24">
+        <path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6h-5.6z"/>
+      </svg>
+    </button>
+  </div>
+
+  <script>
+    const amfilochiaPos = [38.896, 21.160];
+    let boatPos = amfilochiaPos;
+    let targetPos = null;
+    let targetMarker = null;
+    let targetLine = null;
+    let targetZoom = 16;
+    let positionZoom = 16;
+
+    const map = L.map('map', {
+      bounceAtZoomLimits: false,
+      touchZoom: true
+    }).setView(amfilochiaPos, 14);
+
+    // Zwingt Leaflet dazu, die Touch-Events direkt und aktiv abzugreifen
+    if (map.tap) map.tap.enable();
+
+    // Holt die internen Handler und schaltet sie explizit frei
+    map.dragging.enable();
+    map.touchZoom.enable();
+
+    // Dieser Trick korrigiert oft das Touch-Verhalten in Chromium-Kiosk-Umgebungen
+    map.invalidateSize();
+
+    // 1. Lokale Offline-Basiskarte via mbtileserver
+    L.tileLayer('http://192.168.12.90:8080/dynamic_cache/tiles/{z}/{x}/{y}.png', {
+      maxZoom: 17,
+      minZoom: 5,
+      attribution: '&copy; OpenStreetMap',
+      tms: false // mbtileserver liefert standardmäßig oft direkt slippy map Format aus, oder wir testen gleich tms: true falls nötig
+    }).addTo(map);
+
+    // 2. OpenSeaMap Seezeichen Overlay (bleibt als Overlay drüber)
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 17,
+      minZoom: 5,
+      maxNativeZoom: 16,
+      attribution: '&copy; OpenSeaMap'
+    }).addTo(map);
+
+
+    // --- BOOTSMARKER ---
+    const arrowSvg = `<svg viewBox="0 0 24 24" fill="#007bff" stroke="#ffffff" stroke-width="1">
+                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                    </svg>`;
+
+    const boatIcon = L.divIcon({
+      className: 'nav-arrow-icon',
+      html: arrowSvg,
+      iconSize: [24, 24],
+      iconAnchor: [12, 12]
+    });
+    const boatMarker = L.marker(boatPos, { icon: boatIcon }).addTo(map);
+
+    const targetIcon = L.divIcon({
+      className: 'target-marker',
+      html: `<svg viewBox="0 0 24 24" fill="#ff4444" stroke="#ffffff" stroke-width="1.5">
+             <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
+             </svg>`,
+      iconSize: [24, 32],     // Breite: 24px, Höhe: 32px (typisches Pin-Format)
+      iconAnchor: [12, 24]    // WICHTIG: Die Spitze unten in der Mitte ist der Ankerpunkt!
+    });
+
+    // --- HOME ASSISTANT LIVE GPS INTEGRATION ---
+    const HA_HTTP_URL = "http://localhost:8123";
+    const HA_WS_URL = "ws://localhost:8123/api/websocket";
+    const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIzZmVjNzg0YzM5MmE0ZjNiYjFkNzE5MGE0YjlkYzIxMyIsImlhdCI6MTc4OTU4ODQ0OSwiZXhwIjoyMTA0OTQ4NDQ5fQ.RMQHDZ21PDl0g6BNABra3SRSJDWmYogAW428Ty2jegg";
+
+    const ENTITY_LAT     = "sensor.gps_latitude";
+    const ENTITY_LON     = "sensor.gps_longitude";
+    const ENTITY_HEADING = "sensor.gps_heading";
+    const ENTITY_SPEED   = "sensor.gps_speed_kn";
+    const ENTITY_TARGET  = "input_text.target_position";
+
+    let currentLat = amfilochiaPos[0];
+    let currentLon = amfilochiaPos[1];
+    let initialFixDone = false; // Steuert die einmalige Zentrierung beim Start
+    let recenterTimer = null;
+    let socket;
+
+    // Funktion zum Zentrieren mit Zoom positionZoom
+    function centerMapOnBoat() {
+      //boatPos = [currentLat, currentLon];
+      map.flyTo(boatPos, positionZoom, { animate: true });
+    }
+
+    // Timer für Auto-Zentrierung nach 30s Inaktivität zurücksetzen
+    function resetRecenterTimer() {
+      if (recenterTimer) clearTimeout(recenterTimer);
+      recenterTimer = setTimeout(() => {
+        centerMapOnBoat();
+      }, 30000); // 30.000 ms = 30 Sekunden
+    }
+
+    // Bei manueller Interaktion mit der Karte (Touch / Drag / Zoom) Timer neu starten
+    map.on('dragstart zoomstart', function() {
+      resetRecenterTimer();
+    });
+
+    function connectHA() {
+      socket = new WebSocket(HA_WS_URL);
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        if (data.type === 'auth_required') {
+          socket.send(JSON.stringify({ type: 'auth', access_token: TOKEN }));
+        }
+
+        if (data.type === 'auth_ok') {
+          socket.send(JSON.stringify({
+            id: 1,
+            type: 'subscribe_events',
+            event_type: 'state_changed'
+          }));
+        }
+
+        if (data.type === 'event' && data.event.event_type === 'state_changed') {
+          const entityId = data.event.data.entity_id;
+          const newState = data.event.data.new_state;
+
+          // 1. Ziel-Helfer prüfen
+          if (entityId === 'input_text.target_position') {
+            if (!newState || !newState.state || newState.state.trim() === '') {
+              if (targetMarker) {
+                map.removeLayer(targetMarker);
+                targetMarker = null;
+                targetPos = null;
+                updateLine();
+              }
+            }
+          }
+
+          if (entityId === 'sensor.boat_marine_position_pack') {
+            const     lat = newState.attributes.latitude;
+            const     lon = newState.attributes.longitude;
+            const heading = newState.attributes.heading;
+
+            if (!isNaN(lat) && !isNaN(lon) && lat !== 0 && lon !== 0) {
+              boatPos = [lat, lon];
+              boatMarker.setLatLng(boatPos);
+              updateLine();
+
+              if (!initialFixDone) {
+                centerMapOnBoat();
+                initialFixDone = true;
+                resetRecenterTimer();
+              }
+            }
+            
+            if (!isNaN(heading)) {
+              const iconElement = boatMarker.getElement();
+              if (iconElement) {
+                let currentTransform = iconElement.style.transform || '';
+                currentTransform = currentTransform.replace(/rotate\([^)]*\)/g, '').trim();
+                iconElement.style.transform = `${currentTransform} rotate(${heading}deg)`;
+              }
+            }
+          }
+        }
+      };
+
+      socket.onclose = () => setTimeout(connectHA, 5000);
+      socket.onerror = (err) => socket.close();
+    }
+
+    connectHA();    
+    
+    // --- ZIELMARKE & VERBINDUNGSLINIE ---
+    function updateLine() {
+      if (targetPos) {
+        if (targetLine) {
+          targetLine.setLatLngs([boatPos, targetPos]);
+        } else {
+          targetLine = L.polyline([boatPos, targetPos], {
+            color: '#007bff',
+            weight: 1,
+            opacity: 0.8,
+            dashArray: '6, 6'
+          }).addTo(map);
+        }
+      } else if (targetLine) {
+        map.removeLayer(targetLine);
+        targetLine = null;
+      }
+    }
+
+    function setTarget(latlng, doSave = true) {
+      targetPos = [latlng.lat, latlng.lng];
+      targetPosStr = `${latlng.lat},${latlng.lng}`;
+      targetZoom = map.getZoom();
+
+      if (targetMarker) {
+        targetMarker.setLatLng(latlng);
+      } else {
+        targetMarker = L.marker(latlng, { icon: targetIcon }).addTo(map);
+        
+        targetMarker.on('click', function(e) {
+          L.DomEvent.stopPropagation(e);
+          map.removeLayer(targetMarker);
+          targetMarker = null;
+          targetPos = null;
+          targetPosStr = '';
+            
+        });
+      }
+      saveTargetToHA(targetPosStr, doSave);    
+      updateLine();
+    }
+
+    // Marker setzten mit "long press"
+    var pressTimer = null;
+    var startLatLng = null;
+    var startPoint = null;
+    var tolerancePixels = 10; // Toleranz für leichte Zitterbewegungen beim Aufsetzen
+
+    map.on('mousedown touchstart', function(e) {
+      startLatLng = e.latlng;
+      startPoint = map.latLngToContainerPoint(e.latlng);
+      
+      pressTimer = setTimeout(function() {
+        setTarget(e.latlng);
+        pressTimer = null;
+      }, 500); // 500 ms Haltezeit
+    });
+
+    map.on('mousemove touchmove', function(e) {
+      if (pressTimer && startPoint) {
+        var currentPoint = map.latLngToContainerPoint(e.latlng);
+        var distance = Math.sqrt(
+          Math.pow(currentPoint.x - startPoint.x, 2) + 
+          Math.pow(currentPoint.y - startPoint.y, 2)
+        );
+        
+        // Erst wenn sich der Finger über die Toleranzgrenze hinaus bewegt (echtes Wischen)
+        if (distance > tolerancePixels) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+      }
+    });
+
+    map.on('mouseup touchend dragstart', function(e) {
+      if (pressTimer) {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+      }
+    });
+
+    // --- ZENTRIER-FUNKTIONEN ---
+    function moveToPosition() {
+      centerMapOnBoat();
+      resetRecenterTimer();
+    }
+
+    function moveToTarget() {
+      if (targetPos) {
+        positionZoom = map.getZoom();
+        map.flyTo(targetPos, targetZoom);
+      }
+    }
+
+    // --- ZOOM ANZEIGE ---
+    const ZoomControl = L.Control.extend({
+      options: { position: 'bottomleft' },
+      onAdd: function(map) {
+        const container = L.DomUtil.create('div', 'zoom-display');
+        container.innerHTML = 'Zoom: ' + map.getZoom();
+
+        map.on('zoomend', function() {
+          container.innerHTML = 'Zoom: ' + map.getZoom();
+          positionZoom = map.getZoom();
+        });
+
+        return container;
+      }
+    });
+    map.addControl(new ZoomControl());
+
+    setTimeout(function() {
+      map.invalidateSize();
+    }, 200);
+
+    // 1. Beim Laden der Karte: Gespeicherten Ziel-Marker aus HA abrufen
+    function loadTargetFromHA() {
+      console.log("Lade Ziel von HA:", `${HA_HTTP_URL}/api/states/${ENTITY_TARGET}`);
+      
+      fetch(`${HA_HTTP_URL}/api/states/${ENTITY_TARGET}`, {
+        headers: {
+          "Authorization": `Bearer ${TOKEN}`,
+          "Content-Type": "application/json"
+        }
+      })
+      .then(response => {
+        console.log("Load-Response Status:", response.status);
+        return response.json();
+      })
+      .then(data => {
+        console.log("Load-Data empfangen:", data);
+        
+        if (data && data.state && data.state !== "unknown" && data.state !== "") {
+          const parts = data.state.split(",");
+          console.log("Gefundene Teile:", parts);
+          
+          if (parts.length === 2) {
+            const lat = parseFloat(parts[0]);
+            const lng = parseFloat(parts[1]);
+            console.log("Setze Marker auf:", lat, lng);
+            
+            // Marker auf der Karte zeichnen (ohne neu zu speichern)
+            setTarget({ lat, lng }, false); 
+          }
+        } else {
+          console.log("Kein gültiges Ziel in HA gefunden (Zustand war leer oder unknown).");
+        }
+      })
+      .catch(err => console.error("Fehler beim Laden des Ziels aus HA:", err));
+    }
+
+    // 2. Ziel-Marker an Home Assistant senden & speichern
+    function saveTargetToHA(valueString, doSave) {
+      if (doSave) {
+        callHAParamService("input_text", "set_value", ENTITY_TARGET, { value: valueString });
+      }
+    }
+
+    //-------- WebSocket Hilfsfunktion -------------------------
+    let wsIdCounter = 100;
+    // Die kompakte Ein-Zeilen-Lösung für den WebSocket-Serviceaufruf
+    function callHAParamService(domain, service, targetEntity, dataObject) {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({
+          id: wsIdCounter++,
+          type: "call_service",
+          domain: domain,
+          service: service,
+          target: { entity_id: targetEntity },
+          service_data: dataObject
+        }));
+      }
+    }
+
+    loadTargetFromHA();
+
+  </script>
+</body>
+</html>

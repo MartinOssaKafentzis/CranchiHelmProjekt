@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cranchi Marine Map</title>
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #111318;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+      background-color: #1a1d24;
+    }
+    .leaflet-container {
+      background-color: #1a1d24 !important;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // --- 1. KARTE INITIALISIEREN ---
+    const initialLat = 38.958;
+    const initialLng = 21.164;
+
+    const map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([initialLat, initialLng], 13);
+
+    // OpenStreetMap Baseline
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18
+    }).addTo(map);
+
+    // OpenSeaMap Nautical Overlay
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 18
+    }).addTo(map);
+
+
+    // --- 2. GLOBALE VARIABLEN & MARKER ---
+    let targetMarker = null;
+    let targetLine = null;
+    let boatCoords = [initialLat, initialLng];
+
+
+    // --- 3. ZIELMARKER AUF KARTE AKTUALISIEREN / LÖSCHEN ---
+    function updateTargetOnMap(coordsString) {
+      // Wenn der String leer ist (Reset Ziel gedrückt) -> ENTFERNEN
+      if (!coordsString || coordsString.trim() === "" || coordsString === "unknown" || coordsString === "unavailable") {
+        if (targetMarker) {
+          map.removeLayer(targetMarker);
+          targetMarker = null;
+        }
+        if (targetLine) {
+          map.removeLayer(targetLine);
+          targetLine = null;
+        }
+        return;
+      }
+
+      // Koordinaten parsen
+      const parts = coordsString.split(',');
+      if (parts.length === 2) {
+        const lat = parseFloat(parts[0].trim());
+        const lng = parseFloat(parts[1].trim());
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const targetCoords = [lat, lng];
+
+          if (targetMarker) {
+            targetMarker.setLatLng(targetCoords);
+          } else {
+            targetMarker = L.marker(targetCoords, { title: "Ziel" }).addTo(map);
+          }
+
+          if (targetLine) {
+            targetLine.setLatLngs([boatCoords, targetCoords]);
+          } else {
+            targetLine = L.polyline([boatCoords, targetCoords], {
+              color: '#ff9800',
+              weight: 3,
+              dashArray: '5, 10'
+            }).addTo(map);
+          }
+        }
+      }
+    }
+
+
+    // --- 4. KLICK AUF KARTE -> SPEICHERN ÜBER HA SERVICE ---
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const coordsString = `${lat}, ${lng}`;
+
+      // 1. Sofort auf der Karte anzeigen
+      updateTargetOnMap(coordsString);
+
+      // 2. An Home Assistant senden über die übergeordnete Home Assistant Instanz (iframe connection)
+      try {
+        const rootHA = window.parent.document.querySelector("home-assistant");
+        if (rootHA && rootHA.hass) {
+          rootHA.hass.callService("input_text", "set_value", {
+            entity_id: "input_text.target_coordinates",
+            value: coordsString
+          });
+        } else {
+          // Fallback REST-API
+          fetch('/api/services/input_text/set_value', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              entity_id: "input_text.target_coordinates",
+              value: coordsString
+            })
+          });
+        }
+      } catch (err) {
+        console.error("Fehler beim Senden der Zielkoordinaten an HA:", err);
+      }
+    });
+
+
+    // --- 5. HASS ZUSTAND KONTINUIERLICH ANSEHEN ---
+    function checkHAState() {
+      try {
+        const rootHA = window.parent.document.querySelector("home-assistant");
+        if (rootHA && rootHA.hass && rootHA.hass.states["input_text.target_coordinates"]) {
+          const currentVal = rootHA.hass.states["input_text.target_coordinates"].state;
+          updateTargetOnMap(currentVal);
+        }
+      } catch (e) {
+        // Ignorieren falls nicht im iframe
+      }
+    }
+
+    // Prüfe alle 1 Sekunde auf Änderungen
+    setInterval(checkHAState, 1000);
+  </script>
+</body>
+</html>

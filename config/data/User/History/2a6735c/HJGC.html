@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="referrer" content="no-referrer-when-downgrade" />
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <style>
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #1a1a1a;
+    }
+
+    /* Zentrier-Buttons oben rechts */
+    .nav-buttons {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nav-btn {
+      width: 42px;
+      height: 42px;
+      background: #ffffff;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+    .nav-btn:active {
+      background: #e2e8f0;
+    }
+    .nav-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: #1e293b;
+    }
+
+    /* Zoom-Anzeige unten links */
+    .zoom-display {
+      background: rgba(255, 255, 255, 0.9);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #333;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    /* Styling für den Boots-Navigationspfeil */
+    .nav-arrow-icon {
+      background: transparent;
+      border: none;
+    }
+    .nav-arrow-icon svg {
+      width: 32px;
+      height: 32px;
+      filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Zentrier-Buttons -->
+  <div class="nav-buttons">
+    <button class="nav-btn" onclick="moveToPosition()" title="Boot zentrieren">
+      <!-- Zielscheibe Icon -->
+      <svg viewBox="0 0 24 24">
+        <path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10 10-4.49 10-10S17.51 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+      </svg>
+    </button>
+    <button class="nav-btn" onclick="moveToTarget()" title="Ziel zentrieren">
+      <!-- Zielflagge Icon -->
+      <svg viewBox="0 0 24 24">
+        <path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6h-5.6z"/>
+      </svg>
+    </button>
+  </div>
+
+  <script>
+    var amfilochiaPos = [38.896, 21.160];
+    var boatPos = amfilochiaPos;
+    var targetPos = null;
+    var targetMarker = null;
+    var targetLine = null;
+
+    var map = L.map('map').setView(amfilochiaPos, 14);
+
+    // 1. Esri World Topo Basiskarte
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      maxNativeZoom: 18,
+      attribution: 'Tiles &copy; Esri'
+    }).addTo(map);
+
+    // 2. OpenSeaMap Seezeichen Overlay
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenSeaMap'
+    }).addTo(map);
+
+    // --- BOOTSMARKER (Navigationspfeil) ---
+    var arrowSvg = `<svg viewBox="0 0 24 24" fill="#007bff" stroke="#ffffff" stroke-width="1.5">
+                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                    </svg>`;
+
+    var boatIcon = L.divIcon({
+      className: 'nav-arrow-icon',
+      html: arrowSvg,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+    var boatMarker = L.marker(boatPos, { icon: boatIcon }).addTo(map);
+
+    // --- ZIELMARKE & VERBINDUNGSLINIE ---
+    
+    function updateLine() {
+      if (targetPos) {
+        if (targetLine) {
+          targetLine.setLatLngs([boatPos, targetPos]);
+        } else {
+          // Dünne, blau gestrichelte Navigationslinie
+          targetLine = L.polyline([boatPos, targetPos], {
+            color: '#007bff',
+            weight: 2,
+            opacity: 0.8,
+            dashArray: '6, 6'
+          }).addTo(map);
+        }
+      } else if (targetLine) {
+        map.removeLayer(targetLine);
+        targetLine = null;
+      }
+    }
+
+    function setTarget(latlng) {
+      targetPos = [latlng.lat, latlng.lng];
+      
+      if (targetMarker) {
+        targetMarker.setLatLng(latlng);
+      } else {
+        targetMarker = L.marker(latlng).addTo(map);
+        
+        // Klick auf den Marker löscht Ziel und Linie
+        targetMarker.on('click', function(e) {
+          L.DomEvent.stopPropagation(e);
+          map.removeLayer(targetMarker);
+          targetMarker = null;
+          targetPos = null;
+          updateLine();
+        });
+      }
+      updateLine();
+    }
+
+    // Klick auf die Karte setzt neues Ziel
+    map.on('click', function(e) {
+      setTarget(e.latlng);
+    });
+
+    // --- ZENTRIER-FUNKTIONEN ---
+
+    function moveToPosition() {
+      map.flyTo(boatPos, map.getZoom());
+    }
+
+    function moveToTarget() {
+      if (targetPos) {
+        map.flyTo(targetPos, map.getZoom());
+      }
+    }
+
+    // --- ZOOM ANZEIGE ---
+
+    const ZoomControl = L.Control.extend({
+      options: { position: 'bottomleft' },
+      onAdd: function(map) {
+        const container = L.DomUtil.create('div', 'zoom-display');
+        container.innerHTML = 'Zoom: ' + map.getZoom();
+
+        map.on('zoomend', function() {
+          container.innerHTML = 'Zoom: ' + map.getZoom();
+        });
+
+        return container;
+      }
+    });
+    map.addControl(new ZoomControl());
+
+    setTimeout(function() {
+      map.invalidateSize();
+    }, 200);
+  </script>
+</body>
+</html>

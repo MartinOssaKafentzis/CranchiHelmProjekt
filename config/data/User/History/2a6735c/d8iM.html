@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #1a1d24;
+    }
+
+    /* Style für die Zentrieren-Buttons */
+    .recenter-btn {
+      background-color: #ffffff;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-radius: 4px;
+      width: 34px;
+      height: 34px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+      margin-bottom: 5px;
+    }
+    .recenter-btn:hover {
+      background-color: #f4f4f4;
+    }
+    .recenter-btn svg {
+      fill: #333;
+    }
+    .recenter-btn.disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      background-color: #e0e0e0;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    // --- KONFIGURATION ---
+    const HA_URL = 'http://localhost:8123';
+    const HA_TOKEN = 'DEIN_TOKEN_HIER';
+    const ENTITY_ID = 'input_text.target_coordinates';
+
+    // Hafen Amfilochia Startkoordinaten
+    const initialLat = 38.86963;
+    const initialLng = 21.16247;
+
+    // 1. Karte initialisieren
+    const map = L.map('map').setView([initialLat, initialLng], 13);
+
+    // Grundkarte (OpenStreetMap)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Maritime Daten & Tiefenlinien Overlay (OpenSeaMap)
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenSeaMap'
+    }).addTo(map);
+
+    // Global definierte Marker & Koordinaten
+    let boatCoords = [initialLat, initialLng];
+    let boatMarker = null;
+    let targetMarker = null;
+    let targetLine = null;
+
+    let targetBtnElement = null;
+
+    // Bootssymbol (Roter Pfeil)
+    function createBoatIcon(heading) {
+      return L.divIcon({
+        className: 'boat-icon-container',
+        html: `<div style="transform: rotate(${heading}deg); width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
+                 <svg viewBox="0 0 24 24" width="28" height="28" fill="#ff3b30" stroke="#ffffff" stroke-width="1.5">
+                   <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                 </svg>
+               </div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+      });
+    }
+
+    // Boots-Position setzen
+    function updateBoatPosition(lat, lng, heading = 0) {
+      if (isNaN(lat) || isNaN(lng)) return;
+      boatCoords = [lat, lng];
+
+      if (!boatMarker) {
+        boatMarker = L.marker(boatCoords, {
+          icon: createBoatIcon(heading),
+          title: 'Freedom',
+          zIndexOffset: 1000
+        }).addTo(map);
+      } else {
+        boatMarker.setLatLng(boatCoords);
+        boatMarker.setIcon(createBoatIcon(heading));
+      }
+
+      if (targetLine && targetMarker) {
+        targetLine.setLatLngs([boatCoords, targetMarker.getLatLng()]);
+      }
+    }
+
+    // Boot am Hafen anzeigen
+    updateBoatPosition(initialLat, initialLng, 0);
+
+    // --- BUTTON 1: AUF BOOT ZENTRIEREN ---
+    const RecenterBoatControl = L.Control.extend({
+      options: { position: 'topright' },
+      onAdd: function(map) {
+        const container = L.DomUtil.create('div', 'leaflet-bar recenter-btn');
+        container.title = "Auf Boot zentrieren";
+        container.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20">
+                                 <path d="M12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4zm8.94 3A8.994 8.994 0 0 0 13 3.06V1h-2v2.06A8.994 8.994 0 0 0 3.06 11H1v2h2.06A8.994 8.994 0 0 0 11 20.94V23h2v-2.06A8.994 8.994 0 0 0 20.94 13H23v-2h-2.06zM12 19c-3.87 0-7-3.13-7-7s3.13-7 7-7 7 3.13 7 7-3.13 7-7 7z"/>
+                               </svg>`;
+        L.DomEvent.disableClickPropagation(container);
+        container.onclick = function() {
+          map.setView(boatCoords, 14);
+        };
+        return container;
+      }
+    });
+    map.addControl(new RecenterBoatControl());
+
+    // --- BUTTON 2: AUF ZIEL ZENTRIEREN ---
+    const RecenterTargetControl = L.Control.extend({
+      options: { position: 'topright' },
+      onAdd: function(map) {
+        targetBtnElement = L.DomUtil.create('div', 'leaflet-bar recenter-btn disabled');
+        targetBtnElement.title = "Auf Ziel zentrieren";
+        targetBtnElement.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20">
+                                       <path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6h-5.6z" fill="#ff9800"/>
+                                     </svg>`;
+        L.DomEvent.disableClickPropagation(targetBtnElement);
+        targetBtnElement.onclick = function() {
+          if (targetMarker) {
+            map.setView(targetMarker.getLatLng(), 14);
+          }
+        };
+        return targetBtnElement;
+      }
+    });
+    map.addControl(new RecenterTargetControl());
+
+    // Ziel anzeigen & Peillinie zeichnen
+    function setTargetOnMap(targetCoords) {
+      if (targetMarker) {
+        targetMarker.setLatLng(targetCoords);
+      } else {
+        targetMarker = L.marker(targetCoords, { title: 'Ziel' }).addTo(map);
+        
+        targetMarker.on('click', function() {
+          map.removeLayer(targetMarker);
+          targetMarker = null;
+          if (targetLine) {
+            map.removeLayer(targetLine);
+            targetLine = null;
+          }
+          if (targetBtnElement) targetBtnElement.classList.add('disabled');
+          sendTargetToHA('');
+        });
+      }
+
+      if (targetBtnElement) targetBtnElement.classList.remove('disabled');
+
+      if (targetLine) {
+        targetLine.setLatLngs([boatCoords, targetCoords]);
+      } else {
+        targetLine = L.polyline([boatCoords, targetCoords], {
+          color: '#ff9800',
+          weight: 3,
+          dashArray: '5, 10'
+        }).addTo(map);
+      }
+    }
+
+    // Zielkoordinaten an Home Assistant senden
+    function sendTargetToHA(coordsString) {
+      fetch(`${HA_URL}/api/services/input_text/set_value`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          entity_id: ENTITY_ID,
+          value: coordsString
+        })
+      }).catch(err => console.error("Netzwerkfehler beim Senden an HA:", err));
+    }
+
+    // Klick auf die Karte setzt neues Ziel
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const coordsString = `${lat}, ${lng}`;
+
+      setTargetOnMap([e.latlng.lat, e.latlng.lng]);
+      sendTargetToHA(coordsString);
+    });
+
+    // Behebt Iframe-Größenberechnung beim Start
+    setTimeout(function() {
+      map.invalidateSize();
+      map.setView([initialLat, initialLng], 13);
+    }, 500);
+  </script>
+</body>
+</html>

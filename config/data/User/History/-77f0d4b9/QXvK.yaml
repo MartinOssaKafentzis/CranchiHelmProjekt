@@ -1,0 +1,91 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# Marine-Sensoren für das Cranchi Helm Dashboard
+# 1. Deine Sensoren (Berechnen den Zielwert aus Lux)
+template:
+  - sensor:
+      - name: "Steuerstand Display Zielhelligkeit"
+        unique_id: steuerstand_display_zielhelligkeit
+        unit_of_measurement: "%"
+        icon: mdi:brightness-auto
+        state: >-
+          {% set min_b   =    5 %}
+          {% set max_b   =  100 %}
+          {% set min_lux =    2 %}
+          {% set max_lux = 2000 %}
+          {% set lux = states('sensor.cranchi_helm_node_umgebungslicht') | float(0) %}
+          {% if lux >= max_lux %}
+            {{ max_b }}
+          {% elif lux <= min_lux %}
+            {{ min_b }}
+          {% else %}
+            {{ ((lux - min_lux) * (max_b - min_b) / (max_lux - min_lux) + min_b) | round }}
+          {% endif %}
+
+      - name: "Boat Marine Position Pack"
+        unique_id: boat_marine_position_pack
+        state: "{{ now().isoformat() }}"
+        attributes:
+          latitude:  "{{ states('sensor.gps_latitude')  | float(0) }}"
+          longitude: "{{ states('sensor.gps_longitude') | float(0) }}"
+          heading:   "{{ states('sensor.gps_heading')   | float(0) }}"
+
+  - light:
+      - name: "Cranchi Helm Monitor"
+        unique_id: cranchi_helm_monitor_light
+        state: "{{ states('sensor.steuerstand_display_zielhelligkeit') | int > 5 }}"
+        turn_on:
+          action: script.turn_on
+          target:
+            entity_id: script.sanfte_helm_helligkeit
+        turn_off:
+          action: script.turn_on
+          target:
+            entity_id: script.sanfte_helm_helligkeit
+        set_level:
+          action: script.turn_on
+          target:
+            entity_id: script.sanfte_helm_helligkeit
+
+
+# 2. Der SSH-Befehl für den Monitor
+shell_command:
+  set_helm_display_brightness: 'ssh -i /config/.ssh/id_ed25519 -o StrictHostKeyChecking=no martin@192.168.12.90 "ddcutil --bus 14 setvcp 10 {{ brightness }} --noverify; sleep 0.1; ddcutil --bus 14 setvcp 10 {{ brightness }} --noverify"'
+  save_route_to_synology: 'python3 /config/scripts/export_gpx.py'
+
+
+# 3. Das Rampen-Skript (fährt den Monitor in 5er-Schritten hoch/runter)
+script:
+  sanfte_helm_helligkeit:
+    alias: "Helm-Helligkeit sanft anfahren"
+    sequence:
+      - repeat:
+          while: >
+            {% set current = states('input_number.aktueller_monitor_wert') | int(50) %}
+            {% set target = states('sensor.steuerstand_display_zielhelligkeit') | int(50) %}
+            {{ current != target }}
+          sequence:
+            - service: shell_command.set_helm_display_brightness
+              data:
+                brightness: >
+                  {% set current = states('input_number.aktueller_monitor_wert') | int(50) %}
+                  {% set target = states('sensor.steuerstand_display_zielhelligkeit') | int(50) %}
+                  {{ current + 5 if target > current else current - 5 }}
+            - service: input_number.set_value
+              target:
+                entity_id: input_number.aktueller_monitor_wert
+              data:
+                value: >
+                  {% set current = states('input_number.aktueller_monitor_wert') | int(50) %}
+                  {% set target = states('sensor.steuerstand_display_zielhelligkeit') | int(50) %}
+                  {{ current + 5 if target > current else current - 5 }}
+            - delay: "0.200"

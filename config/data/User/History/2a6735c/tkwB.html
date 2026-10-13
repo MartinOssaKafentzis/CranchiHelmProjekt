@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #000;
+    }
+
+    /* Feste Navigations-Buttons oben rechts */
+    .nav-buttons {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nav-btn {
+      width: 40px;
+      height: 40px;
+      background: rgba(255, 255, 255, 0.9);
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 4px;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+      user-select: none;
+    }
+    .nav-btn:active {
+      background: #ddd;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Buttons direkt im DOM -->
+  <div class="nav-buttons">
+    <div class="nav-btn" onclick="moveToPosition()" title="Move to Position">🎯</div>
+    <div class="nav-btn" onclick="moveToTarget()" title="Move to Target">📍</div>
+  </div>
+
+  <script>
+    var amfilochiaPos = [38.896, 21.160];
+    var boatPos = amfilochiaPos;
+    var targetPos = [38.890, 21.150];
+
+    var map = L.map('map').setView(amfilochiaPos, 14);
+
+    // 1. OSM Basiskarte
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // 2. OpenSeaMap Overlay
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 17,
+      attribution: '© OpenSeaMap'
+    }).addTo(map);
+
+    // Zentrier-Funktionen
+    function moveToPosition() {
+      map.flyTo(boatPos, map.getZoom());
+    }
+
+    function moveToTarget() {
+      map.flyTo(targetPos, map.getZoom());
+    }
+
+    // Zoom-Anzeige unten links
+    const ZoomControl = L.Control.extend({
+      options: { position: 'bottomleft' },
+      onAdd: function(map) {
+        const container = L.DomUtil.create('div', 'zoom-display');
+        container.style.backgroundColor = 'rgba(255, 255, 255, 0.85)';
+        container.style.padding = '3px 8px';
+        container.style.borderRadius = '4px';
+        container.style.fontSize = '12px';
+        container.style.fontWeight = 'bold';
+        container.style.color = '#333';
+        container.style.boxShadow = '0 1px 4px rgba(0,0,0,0.3)';
+        
+        container.innerHTML = 'Zoom: ' + map.getZoom();
+
+        map.on('zoomend', function() {
+          container.innerHTML = 'Zoom: ' + map.getZoom();
+        });
+
+        return container;
+      }
+    });
+    map.addControl(new ZoomControl());
+
+    // Kachel-Neu-Berechnung für 1920x1080
+    setTimeout(function() {
+      map.invalidateSize();
+    }, 200);
+  </script>
+</body>
+</html>

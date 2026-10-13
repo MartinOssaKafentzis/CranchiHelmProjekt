@@ -1,0 +1,27 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# Marine-Sensoren für das Cranchi Helm Dashboard
+template:
+  - sensor:
+      - name: "Boot Geschwindigkeit km/h"
+        unique_id: boat_speed_kmh
+        unit_of_measurement: "km/h"
+        icon: mdi:speedometer
+        state: >
+          {{ (states('sensor.boot_geschwindigkeit_kn') | float(0) * 1.852) | round(1) }}
+
+shell_command:
+  set_display_brightness: 'echo "$(date): HA rief Skript auf mit Wert {{ brightness }}" >> /config/ddc_debug.log && nsenter -t 1 -m -u -i -n ddcutil setvcp 10 {{ brightness }} --bus=14 >> /config/ddc_debug.log 2>&1'
+
+# shell_command:
+#  set_display_brightness: "ddcutil set 10 {{ brightness }}"
+

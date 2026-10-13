@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cranchi Marine Map</title>
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #111318;
+      font-family: sans-serif;
+      overflow: hidden;
+    }
+    #map {
+      width: 100%;
+      height: 100%;
+      background-color: #1a1d24;
+    }
+    .leaflet-container {
+      background-color: #1a1d24 !important;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // ==========================================
+    // DEIN TOKEN HIER EINFÜGEN:
+    // ==========================================
+    const HA_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3MjBmOTE2ZWRlMzk0MDlkYjJlMmJhNWJlZTAxOGZiNCIsImlhdCI6MTc4ODY0OTcxNywiZXhwIjoyMTA0MDA5NzE3fQ.lXZBgQw08x4pB40ngJ37E3pZ5iD0pttsyYmFfAih_As";
+    // ==========================================
+
+    // --- 1. KARTE INITIALISIEREN ---
+    const initialLat = 38.958;
+    const initialLng = 21.164;
+
+    const map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([initialLat, initialLng], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+
+    let targetMarker = null;
+    let targetLine = null;
+    let boatCoords = [initialLat, initialLng];
+
+    // --- 2. ZIELMARKER AUF KARTE RENDERN UND LÖSCHEN ---
+    function updateTargetOnMap(coordsString) {
+      if (!coordsString || coordsString.trim() === "" || coordsString === "unknown" || coordsString === "unavailable") {
+        if (targetMarker) {
+          map.removeLayer(targetMarker);
+          targetMarker = null;
+        }
+        if (targetLine) {
+          map.removeLayer(targetLine);
+          targetLine = null;
+        }
+        return;
+      }
+
+      const parts = coordsString.split(',');
+      if (parts.length === 2) {
+        const lat = parseFloat(parts[0].trim());
+        const lng = parseFloat(parts[1].trim());
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const targetCoords = [lat, lng];
+
+          if (targetMarker) {
+            targetMarker.setLatLng(targetCoords);
+          } else {
+            targetMarker = L.marker(targetCoords, { title: "Ziel" }).addTo(map);
+          }
+
+          if (targetLine) {
+            targetLine.setLatLngs([boatCoords, targetCoords]);
+          } else {
+            targetLine = L.polyline([boatCoords, targetCoords], {
+              color: '#ff9800',
+              weight: 3,
+              dashArray: '5, 10'
+            }).addTo(map);
+          }
+        }
+      }
+    }
+
+    // --- 3. KLICK AUF KARTE -> PER REST-API SCHREIBEN ---
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const coordsString = `${lat}, ${lng}`;
+
+      // Sofort lokal anzeigen
+      updateTargetOnMap(coordsString);
+
+      // Authentifiziert an Home Assistant senden
+      fetch('/api/services/input_text/set_value', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          entity_id: 'input_text.target_coordinates',
+          value: coordsString
+        })
+      })
+      .then(res => {
+        if (!res.ok) console.error("HA Service-Aufruf fehlgeschlagen:", res.status);
+      })
+      .catch(err => console.error("Netzwerkfehler:", err));
+    });
+
+    // --- 4. ZUSTAND CONTINUOUSLY ABFRAGEN (POLLING) ---
+    function pollHAState() {
+      fetch('/api/states/input_text.target_coordinates', {
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.state !== undefined) {
+          updateTargetOnMap(data.state);
+        }
+      })
+      .catch(err => {
+        // Stille Fehlerbehandlung beim Polling
+      });
+    }
+
+    setInterval(pollHAState, 1000);
+    pollHAState();
+  </script>
+</body>
+</html>

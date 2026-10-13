@@ -1,1 +1,8 @@
-config/
+config/.storage/
+config/home-assistant_v2.db
+config/tts/
+config/deps/
+config/backups/
+*.tar
+*.db
+*.log

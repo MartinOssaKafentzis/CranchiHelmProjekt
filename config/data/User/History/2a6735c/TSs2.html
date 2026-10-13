@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #1a1d24;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    // --- KONFIGURATION ---
+    const HA_URL = 'http://localhost:8123'; // Oder deine HA-IP:8123
+    const HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI3MjBmOTE2ZWRlMzk0MDlkYjJlMmJhNWJlZTAxOGZiNCIsImlhdCI6MTc4ODY0OTcxNywiZXhwIjoyMTA0MDA5NzE3fQ.lXZBgQw08x4pB40ngJ37E3pZ5iD0pttsyYmFfAih_As';
+    const ENTITY_ID = 'input_text.target_coordinates';
+    // ----------------------
+
+    const initialLat = 38.958;
+    const initialLng = 21.164;
+
+    const map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([initialLat, initialLng], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+
+    let boatCoords = [initialLat, initialLng];
+    let targetMarker = null;
+    let targetLine = null;
+
+    // Klick auf Karte setzt Koordinaten in Home Assistant via REST API
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const coordsString = `${lat}, ${lng}`;
+
+      setHaTargetCoordinates(coordsString);
+    });
+
+    function setHaTargetCoordinates(coords) {
+      fetch(`${HA_URL}/api/services/input_text/set_value`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          entity_id: ENTITY_ID,
+          value: coords
+        })
+      }).then(() => pollTargetCoordinates());
+    }
+
+    function pollTargetCoordinates() {
+      fetch(`${HA_URL}/api/states/${ENTITY_ID}`, {
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.state) {
+          updateTargetOnMap(data.state);
+        }
+      })
+      .catch(err => console.error("API Error:", err));
+    }
+
+    function updateTargetOnMap(coordsString) {
+      if (!coordsString || coordsString.trim() === '' || coordsString === 'unknown' || coordsString === 'unavailable') {
+        if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
+        if (targetLine) { map.removeLayer(targetLine); targetLine = null; }
+        return;
+      }
+
+      const parts = coordsString.split(',');
+      if (parts.length === 2) {
+        const lat = parseFloat(parts[0].trim());
+        const lng = parseFloat(parts[1].trim());
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const targetCoords = [lat, lng];
+
+          if (targetMarker) {
+            targetMarker.setLatLng(targetCoords);
+          } else {
+            targetMarker = L.marker(targetCoords, { title: 'Ziel' }).addTo(map);
+          }
+
+          if (targetLine) {
+            targetLine.setLatLngs([boatCoords, targetCoords]);
+          } else {
+            targetLine = L.polyline([boatCoords, targetCoords], {
+              color: '#ff9800',
+              weight: 3,
+              dashArray: '5, 10'
+            }).addTo(map);
+          }
+        }
+      }
+    }
+
+    // Polling alle 2 Sekunden, um Änderungen/Reset aus HA abzufragen
+    setInterval(pollTargetCoordinates, 2000);
+    pollTargetCoordinates();
+  </script>
+</body>
+</html>

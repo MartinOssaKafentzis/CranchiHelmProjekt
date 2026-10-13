@@ -1,0 +1,77 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+frontend:
+  extra_module_url:
+    - /local/card-mod.js # Oder wo Ihre card-mod.js liegt
+
+  themes:
+    mein_theme:
+      card-mod-more-info-yaml: |
+        $: |
+          .mdc-dialog {
+            left: 425px !important;
+            right: auto !important;
+            transform: translateX(-50%) !important;
+          }
+          
+# Marine-Sensoren für das Cranchi Helm Dashboard
+# 1. Deine Sensoren (Berechnen den Zielwert aus Lux)
+template:
+  - sensor:
+      - name: "Steuerstand Display Zielhelligkeit"
+        unique_id: steuerstand_display_zielhelligkeit
+        unit_of_measurement: "%"
+        icon: mdi:brightness-auto
+        state: >-
+          {% set min_b   =    5 %}
+          {% set max_b   =  100 %}
+          {% set min_lux =    2 %}
+          {% set max_lux = 2000 %}
+          {% set lux = states('sensor.cranchi_helm_node_umgebungslicht') | float(0) %}
+          {% if lux >= max_lux %}
+            {{ max_b }}
+          {% elif lux <= min_lux %}
+            {{ min_b }}
+          {% else %}
+            {{ ((lux - min_lux) * (max_b - min_b) / (max_lux - min_lux) + min_b) | round }}
+          {% endif %}
+
+      - name: "Boat Marine Position Pack"
+        unique_id: boat_marine_position_pack
+        state: "{{ now().isoformat() }}"
+        attributes:
+          latitude:  "{{ states('sensor.gps_latitude')  | float(0) }}"
+          longitude: "{{ states('sensor.gps_longitude') | float(0) }}"
+          heading:   "{{ states('sensor.gps_heading')   | float(0) }}"
+
+  - light:
+      - name: "Cranchi Helm Monitor"
+        unique_id: cranchi_helm_monitor_light
+        state: "{{ is_state('shell_command.set_helm_display_brightness', 'ok') }}"
+        turn_on:
+          action: shell_command.set_helm_display_brightness
+          data:
+            brightness: 100
+        turn_off:
+          action: shell_command.set_helm_display_brightness
+          data:
+            brightness: 5
+        set_level:
+          action: shell_command.set_helm_display_brightness
+          data:
+            brightness: "{{ brightness }}"
+
+
+shell_command:
+  set_helm_display_brightness: 'ssh -i /config/.ssh/id_ed25519 -o StrictHostKeyChecking=no martin@192.168.12.90 "ddcutil --bus 14 setvcp 10 {{ brightness }} --noverify; sleep 0.1; ddcutil --bus 14 setvcp 10 {{ brightness }} --noverify"'
+  save_route_to_synology: 'python3 /config/scripts/export_gpx.py'
+

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #000;
+    }
+    /* Buttons oben rechts für Navigation */
+    .nav-btn-container {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nav-btn {
+      background: rgba(255, 255, 255, 0.9);
+      border: none;
+      border-radius: 4px;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-weight: bold;
+      cursor: pointer;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .nav-btn:active {
+      background: #eee;
+    }
+    /* Zoom Anzeige unten links */
+    #zoom-display {
+      position: absolute;
+      bottom: 20px;
+      left: 10px;
+      z-index: 1000;
+      background: rgba(0, 0, 0, 0.75);
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: sans-serif;
+      font-size: 13px;
+      font-weight: bold;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Navigations-Buttons (Zentrieren) -->
+  <div class="nav-btn-container">
+    <button class="nav-btn" onclick="moveToPosition()">🎯 Boot</button>
+    <button class="nav-btn" onclick="moveToTarget()">📍 Ziel</button>
+  </div>
+
+  <!-- Zoom Anzeige -->
+  <div id="zoom-display">Zoom: --</div>
+
+  <script>
+    // 1. Karte initialisieren
+    var boatPos = [38.89, 21.07]; // Beispielkoordinaten Boot
+    var targetPos = [38.92, 21.10]; // Beispielkoordinaten Ziel
+
+    var map = L.map('map', { zoomControl: true }).setView(boatPos, 14);
+
+    // 2. CartoDB Basiskarte (kein 403 / kein API-Key-Limit)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      maxZoom: 21,
+      maxNativeZoom: 18,
+      attribution: '© OpenStreetMap, © CARTO'
+    }).addTo(map);
+
+    // 3. OpenSeaMap Seezeichen
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '© OpenSeaMap'
+    }).addTo(map);
+
+    // 4. Funktionen für "move to position" & "move to target"
+    function moveToPosition() {
+      map.flyTo(boatPos, map.getZoom());
+    }
+
+    function moveToTarget() {
+      map.flyTo(targetPos, map.getZoom());
+    }
+
+    // 5. Live Zoom-Anzeige
+    function updateZoom() {
+      document.getElementById('zoom-display').innerHTML = 'Zoom: ' + map.getZoom();
+    }
+    map.on('zoom zoomend', updateZoom);
+    updateZoom();
+  </script>
+</body>
+</html>

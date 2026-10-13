@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, shrink-to-fit=no" />
+  <meta name="referrer" content="no-referrer-when-downgrade" />
+  
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  
+  <style>
+    /* Absolute Touch-Sperre für das Dokument */
+    html, body {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background: #1a1a1a;
+      overflow: hidden !important;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      overscroll-behavior: none !important;
+      overscroll-behavior-y: none !important;
+      touch-action: none !important;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    #map {
+      height: 100%;
+      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      touch-action: pan-x pan-y !important;
+    }
+
+    /* Zentrier-Buttons oben rechts */
+    .nav-buttons {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .nav-btn {
+      width: 42px;
+      height: 42px;
+      background: #ffffff;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+    }
+    .nav-btn:active {
+      background: #e2e8f0;
+    }
+    .nav-btn svg {
+      width: 24px;
+      height: 24px;
+      fill: #1e293b;
+    }
+
+    /* Anpassung der Leaflet Zoom-Buttons (oben links) */
+    .leaflet-control-zoom a {
+      width: 42px !important;
+      height: 42px !important;
+      line-height: 42px !important;
+      font-size: 24px !important;
+      font-weight: bold !important;
+      color: #1e293b !important;
+      border-radius: 6px !important;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4) !important;
+    }
+
+    .leaflet-control-zoom-in {
+      margin-bottom: 8px !important;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.2) !important;
+    }
+
+    .leaflet-control-zoom {
+      border: none !important;
+      box-shadow: none !important;
+    }
+
+    .leaflet-control-zoom a:active {
+      background: #e2e8f0 !important;
+    }
+
+    /* Zoom-Anzeige unten links */
+    .zoom-display {
+      background: rgba(255, 255, 255, 0.9);
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #333;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+
+    /* Styling für den Boots-Navigationspfeil */
+    .nav-arrow-icon {
+      background: transparent;
+      border: none;
+    }
+    .nav-arrow-icon svg {
+      width: 32px;
+      height: 32px;
+      filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.5));
+    }
+  </style>
+</head>
+<body>
+
+  <div id="map"></div>
+
+  <!-- Zentrier-Buttons -->
+  <div class="nav-buttons">
+    <button class="nav-btn" onclick="moveToPosition()" title="Boot zentrieren">
+      <svg viewBox="0 0 24 24">
+        <path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10 10-4.49 10-10S17.51 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm0-14c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+      </svg>
+    </button>
+    <button class="nav-btn" onclick="moveToTarget()" title="Ziel zentrieren">
+      <svg viewBox="0 0 24 24">
+        <path d="M14.4 6L14 4H5v17h2v-7h5.6l.4 2h7V6h-5.6z"/>
+      </svg>
+    </button>
+  </div>
+
+  <script>
+    var amfilochiaPos = [38.896, 21.160];
+    var boatPos = amfilochiaPos;
+    var targetPos = null;
+    var targetMarker = null;
+    var targetLine = null;
+
+    var map = L.map('map', {
+      bounceAtZoomLimits: false,
+      touchZoom: true
+    }).setView(amfilochiaPos, 14);
+
+    // 1. Esri World Topo Basiskarte
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 19,
+      maxNativeZoom: 18,
+      attribution: 'Tiles &copy; Esri'
+    }).addTo(map);
+
+    // 2. OpenSeaMap Seezeichen Overlay
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      maxNativeZoom: 18,
+      attribution: '© OpenSeaMap'
+    }).addTo(map);
+
+    // --- BOOTSMARKER ---
+    var arrowSvg = `<svg viewBox="0 0 24 24" fill="#007bff" stroke="#ffffff" stroke-width="1.5">
+                      <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                    </svg>`;
+
+    var boatIcon = L.divIcon({
+      className: 'nav-arrow-icon',
+      html: arrowSvg,
+      iconSize: [32, 32],
+      iconAnchor: [16, 16]
+    });
+    var boatMarker = L.marker(boatPos, { icon: boatIcon }).addTo(map);
+
+    // --- HOME ASSISTANT LIVE GPS INTEGRATION (SEPARATE SENSOREN) ---
+    const HA_URL = "ws://localhost:8123/api/websocket"; // IP anpassen falls nötig
+    const TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiIzZmVjNzg0YzM5MmE0ZjNiYjFkNzE5MGE0YjlkYzIxMyIsImlhdCI6MTc4OTU4ODQ0OSwiZXhwIjoyMTA0OTQ4NDQ5fQ.RMQHDZ21PDl0g6BNABra3SRSJDWmYogAW428Ty2jegg";
+    
+    // Gib hier deine exakten Entitäts-IDs aus HA (Entwicklerwerkzeuge -> Zustände) ein:
+    const ENTITY_LAT     = "sensor.smart0183_latitude";  // Dein Breitengrad-Sensor
+    const ENTITY_LON     = "sensor.smart0183_longitude"; // Dein Längengrad-Sensor
+    const ENTITY_HEADING = "sensor.smart0183_heading";   // Optional: Kurs/Ausrichtung in Grad (COG)
+
+    let currentLat = amfilochiaPos[0];
+    let currentLon = amfilochiaPos[1];
+    let socket;
+
+    function connectHA() {
+      socket = new WebSocket(HA_URL);
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+
+        // 1. Authentifizierung bei HA
+        if (data.type === 'auth_required') {
+          socket.send(JSON.stringify({ type: 'auth', access_token: TOKEN }));
+        }
+
+        // 2. Abonnieren von Zustandsänderungen
+        if (data.type === 'auth_ok') {
+          socket.send(JSON.stringify({
+            id: 1,
+            type: 'subscribe_events',
+            event_type: 'state_changed'
+          }));
+        }
+
+        // 3. Events auswerten
+        if (data.type === 'event' && data.event.event_type === 'state_changed') {
+          const entityId = data.event.data.entity_id;
+          const newState = data.event.data.new_state;
+
+          if (!newState || isNaN(parseFloat(newState.state))) return;
+
+          const val = parseFloat(newState.state);
+
+          // Breitengrad aktualisieren
+          if (entityId === ENTITY_LAT) {
+            currentLat = val;
+            updateBoatMarker();
+          }
+
+          // Längengrad aktualisieren
+          if (entityId === ENTITY_LON) {
+            currentLon = val;
+            updateBoatMarker();
+          }
+
+          // Bootspfeil ausrichten (Heading / Kurs über Grund)
+          if (entityId === ENTITY_HEADING) {
+            const iconElement = boatMarker.getElement();
+            if (iconElement) {
+              iconElement.style.transformOrigin = 'center center';
+              // Behält Position bei und rotiert das Icon nach dem Kurs-Winkel
+              iconElement.style.transform += ` rotate(${val}deg)`;
+            }
+          }
+        }
+      };
+
+      socket.onclose = () => setTimeout(connectHA, 5000);
+      socket.onerror = (err) => socket.close();
+    }
+
+    // Hilfsfunktion: Marker auf der Karte verschieben & Verbindungslinie neu zeichnen
+    function updateBoatMarker() {
+      boatPos = [currentLat, currentLon];
+      boatMarker.setLatLng(boatPos);
+      updateLine(); // Passt die gepunktete Linie zum Ziel an
+    }
+
+    // Start der Verbindung
+    connectHA();    
+    
+    // --- ZIELMARKE & VERBINDUNGSLINIE ---
+    function updateLine() {
+      if (targetPos) {
+        if (targetLine) {
+          targetLine.setLatLngs([boatPos, targetPos]);
+        } else {
+          targetLine = L.polyline([boatPos, targetPos], {
+            color: '#007bff',
+            weight: 2,
+            opacity: 0.8,
+            dashArray: '6, 6'
+          }).addTo(map);
+        }
+      } else if (targetLine) {
+        map.removeLayer(targetLine);
+        targetLine = null;
+      }
+    }
+
+    function setTarget(latlng) {
+      targetPos = [latlng.lat, latlng.lng];
+      
+      if (targetMarker) {
+        targetMarker.setLatLng(latlng);
+      } else {
+        targetMarker = L.marker(latlng).addTo(map);
+        
+        targetMarker.on('click', function(e) {
+          L.DomEvent.stopPropagation(e);
+          map.removeLayer(targetMarker);
+          targetMarker = null;
+          targetPos = null;
+          updateLine();
+        });
+      }
+      updateLine();
+    }
+
+    map.on('click', function(e) {
+      setTarget(e.latlng);
+    });
+
+    // --- ZENTRIER-FUNKTIONEN ---
+    function moveToPosition() {
+      map.flyTo(boatPos, map.getZoom());
+    }
+
+    function moveToTarget() {
+      if (targetPos) {
+        map.flyTo(targetPos, map.getZoom());
+      }
+    }
+
+    // --- ZOOM ANZEIGE ---
+    const ZoomControl = L.Control.extend({
+      options: { position: 'bottomleft' },
+      onAdd: function(map) {
+        const container = L.DomUtil.create('div', 'zoom-display');
+        container.innerHTML = 'Zoom: ' + map.getZoom();
+
+        map.on('zoomend', function() {
+          container.innerHTML = 'Zoom: ' + map.getZoom();
+        });
+
+        return container;
+      }
+    });
+    map.addControl(new ZoomControl());
+
+    // Verhindert Browser-Skalierung bei Touch-Gesten
+    document.addEventListener('touchstart', function(e) {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    document.addEventListener('touchmove', function(e) {
+      if (e.touches.length > 1) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    document.body.addEventListener('touchmove', function(e) {
+      if (!e.target.closest('#map')) {
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    setTimeout(function() {
+      map.invalidateSize();
+    }, 200);
+  </script>
+</body>
+</html>

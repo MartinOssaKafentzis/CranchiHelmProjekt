@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #1a1d24;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    const initialLat = 38.958;
+    const initialLng = 21.164;
+
+    const map = L.map('map', {
+      zoomControl: false,
+      attributionControl: false
+    }).setView([initialLat, initialLng], 13);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+    L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+
+    let boatCoords = [initialLat, initialLng];
+    let targetMarker = null;
+    let targetLine = null;
+
+    // Klick auf Karte sendet Event an die Parent-Card in HA
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      window.parent.postMessage({ type: 'SET_TARGET', coords: `${lat}, ${lng}` }, '*');
+    });
+
+    // Empfange Nachrichten von der Card (z. B. wenn der Reset-Button gedrückt wird oder HA die Koordinaten updated)
+    window.addEventListener('message', function(event) {
+      if (!event.data) return;
+
+      if (event.data.type === 'UPDATE_TARGET') {
+        updateTarget(event.data.coords);
+      } else if (event.data.type === 'CLEAR_TARGET') {
+        clearTarget();
+      }
+    });
+
+    function clearTarget() {
+      if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
+      if (targetLine) { map.removeLayer(targetLine); targetLine = null; }
+    }
+
+    function updateTarget(coordsString) {
+      if (!coordsString || coordsString.trim() === '' || coordsString === 'unknown' || coordsString === 'unavailable') {
+        clearTarget();
+        return;
+      }
+
+      const parts = coordsString.split(',');
+      if (parts.length === 2) {
+        const lat = parseFloat(parts[0].trim());
+        const lng = parseFloat(parts[1].trim());
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const targetCoords = [lat, lng];
+
+          if (targetMarker) {
+            targetMarker.setLatLng(targetCoords);
+          } else {
+            targetMarker = L.marker(targetCoords, { title: 'Ziel' }).addTo(map);
+          }
+
+          if (targetLine) {
+            targetLine.setLatLngs([boatCoords, targetCoords]);
+          } else {
+            targetLine = L.polyline([boatCoords, targetCoords], {
+              color: '#ff9800',
+              weight: 3,
+              dashArray: '5, 10'
+            }).addTo(map);
+          }
+        }
+      }
+    }
+  </script>
+</body>
+</html>

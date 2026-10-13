@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #1a1d24;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    // --- KONFIGURATION ---
+    const HA_URL = 'http://localhost:8123'; // Oder deine HA-IP:8123
+    const HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4YjI2Y2RlYjhjNDE0NWNhYWRlZWVkZTE0YTQ0YTU4ZCIsImlhdCI6MTc4ODY5MzM4MSwiZXhwIjoyMTA0MDUzMzgxfQ.8H6eo6rleuwQyctJpiSimQADZYRlQd8IUF8ujVbQmvw';
+    const ENTITY_ID = 'input_text.target_coordinates';
+    // ----------------------
+
+    const initialLat = 38.86963;
+    const initialLng = 21.16247;
+
+    // 1. KARTEN-OBJEKT ERSTELLEN (Gefehlt!)
+    const map = L.map('map').setView([initialLat, initialLng], 12);
+
+    // Kacheln laden (OpenStreetMap)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap'
+    }).addTo(map);
+
+    // Global definierte Bootsposition & Marker
+    let boatCoords = [initialLat, initialLng];
+    let boatMarker = null;
+    let targetMarker = null; // Gefehlt!
+    let targetLine = null;   // Gefehlt!
+
+    // Funktion zum Erzeugen eines rotierbaren Bootssymbols (Pfeil)
+    function createBoatIcon(heading) {
+      return L.divIcon({
+        className: 'boat-icon-container',
+        html: `<div style="transform: rotate(${heading}deg); width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
+                 <svg viewBox="0 0 24 24" width="28" height="28" fill="#ff3b30" stroke="#ffffff" stroke-width="1.5">
+                   <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                 </svg>
+               </div>`,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+      });
+    }
+
+    // Funktion zum Platzieren / Aktualisieren des Bootes
+    function updateBoatPosition(lat, lng, heading = 0) {
+      if (isNaN(lat) || isNaN(lng)) return;
+      boatCoords = [lat, lng];
+
+      if (!boatMarker) {
+        boatMarker = L.marker(boatCoords, {
+          icon: createBoatIcon(heading),
+          title: 'Freedom',
+          zIndexOffset: 1000
+        }).addTo(map);
+      } else {
+        boatMarker.setLatLng(boatCoords);
+        boatMarker.setIcon(createBoatIcon(heading));
+      }
+
+      // Falls eine Peillinie existiert, deren Startpunkt auf die neue Bootsposition anpassen
+      if (targetLine && targetMarker) {
+        targetLine.setLatLngs([boatCoords, targetMarker.getLatLng()]);
+      }
+    }
+
+    // Boot sofort an der Initialposition zeichnen
+    updateBoatPosition(initialLat, initialLng, 0);
+
+    // Klick auf Karte setzt Ziel-Koordinaten
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const coordsString = `${lat}, ${lng}`;
+
+      // 1. Visuell sofort anzeigen
+      updateTargetOnMap(coordsString);
+
+      // 2. An Home Assistant senden
+      setHaTargetCoordinates(coordsString);
+    });
+
+    function setHaTargetCoordinates(coords) {
+      fetch(`${HA_URL}/api/services/input_text/set_value`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          entity_id: ENTITY_ID,
+          value: coords
+        })
+      })
+      .then(res => {
+        if (!res.ok) {
+          console.error("HA API Fehler beim Schreiben:", res.status, res.statusText);
+        } else {
+          console.log("Ziel erfolgreich in HA gespeichert:", coords);
+        }
+      })
+      .catch(err => console.error("Netzwerkfehler beim Schreiben in HA:", err));
+    }
+
+    function pollTargetCoordinates() {
+      fetch(`${HA_URL}/api/states/${ENTITY_ID}`, {
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        if (data && data.state !== undefined) {
+          updateTargetOnMap(data.state);
+        }
+      })
+      .catch(err => console.error("API Error beim Polling:", err));
+    }
+
+    function updateTargetOnMap(coordsString) {
+      if (!coordsString || coordsString.trim() === '' || coordsString === 'unknown' || coordsString === 'unavailable') {
+        if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
+        if (targetLine) { map.removeLayer(targetLine); targetLine = null; }
+        return;
+      }
+
+      const parts = coordsString.split(',');
+      if (parts.length === 2) {
+        const lat = parseFloat(parts[0].trim());
+        const lng = parseFloat(parts[1].trim());
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const targetCoords = [lat, lng];
+
+          if (targetMarker) {
+            targetMarker.setLatLng(targetCoords);
+          } else {
+            targetMarker = L.marker(targetCoords, { title: 'Ziel' }).addTo(map);
+            
+            // Klick auf den Ziel-Marker löscht ihn sofort (auf Karte und in HA)
+            targetMarker.on('click', function() {
+              updateTargetOnMap('');
+              setHaTargetCoordinates('');
+            });
+          }
+
+          if (targetLine) {
+            targetLine.setLatLngs([boatCoords, targetCoords]);
+          } else {
+            targetLine = L.polyline([boatCoords, targetCoords], {
+              color: '#ff9800',
+              weight: 3,
+              dashArray: '5, 10'
+            }).addTo(map);
+          }
+        }
+      }
+    }
+
+    // Polling alle 2 Sekunden für Änderungen aus HA
+    setInterval(pollTargetCoordinates, 2000);
+    pollTargetCoordinates();
+  </script>
+</body>
+</html>

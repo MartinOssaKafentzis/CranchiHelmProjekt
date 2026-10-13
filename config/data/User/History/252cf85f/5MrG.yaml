@@ -1,0 +1,40 @@
+- id: '1788470789137'
+  alias: Steuerstand Display-Helligkeit linear anpassen
+  description: Rechnet den BH1750 Lux-Wert stufenlos/linear auf 0-100% Displayhelligkeit
+    um
+  triggers:
+  - entity_id: sensor.cranchi_helm_node_umgebungslicht
+    trigger: state
+  conditions:
+  - condition: template
+    value_template: '{{ states(''sensor.cranchi_helm_node_umgebungslicht'') not in
+      [''unknown'', ''unavailable''] }}'
+  actions:
+  - action: shell_command.set_display_brightness
+    data:
+      brightness: '{% set max_lux = 500.0 %} {% set lux = states(''sensor.cranchi_helm_node_umgebungslicht'')
+        | float(0) %} {% set calculated = (lux / max_lux * 100) | round(0) | int %}
+        {{ [[calculated, 0] | max, 100] | min }}'
+
+- alias: "Boot: GPS Track Punkt erfassen"
+  trigger:
+    - platform: time_pattern
+      seconds: "/10"
+  condition:
+    - condition: state
+      entity_id: input_boolean.route_recording
+      state: "on"
+  action:
+    - service: system_log.write
+      data:
+        message: "GPS Trackpoint erfasst: {{ states('sensor.cranchi_helm_node_gps_latitude') }}, {{ states('sensor.cranchi_helm_node_gps_longitude') }}"
+
+- alias: "Boot: Route Stoppen und an Synology senden"
+  trigger:
+    - platform: state
+      entity_id: input_button.route_stop
+  action:
+    - service: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.route_recording
+    - service: shell_command.save_route_to_synology

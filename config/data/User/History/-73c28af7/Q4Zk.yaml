@@ -1,0 +1,5 @@
+# Secrets — referenced from device configs via !secret
+# Add Wi-Fi credentials here, or let the create-device
+# wizard add them for you.
+wifi_ssid: "BOOT-WLAN"
+wifi_password: "45Xph66ctt"

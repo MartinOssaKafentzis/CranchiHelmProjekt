@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #1a1d24;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    // --- KONFIGURATION ---
+    const HA_URL = 'http://localhost:8123'; // Oder deine HA-IP:8123
+    const HA_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI4YjI2Y2RlYjhjNDE0NWNhYWRlZWVkZTE0YTQ0YTU4ZCIsImlhdCI6MTc4ODY5MzM4MSwiZXhwIjoyMTA0MDUzMzgxfQ.8H6eo6rleuwQyctJpiSimQADZYRlQd8IUF8ujVbQmvw';
+    const ENTITY_ID = 'input_text.target_coordinates';
+    // ----------------------
+
+    const initialLat = 38.9612;
+    const initialLng = 21.1645;
+
+    // Global definierte Bootsposition (falls nicht schon oben definiert)
+    let boatCoords = [initialLat, initialLng]; // Wird durch deine HA-GPS-Logik überschrieben
+    let targetMarker = null;
+    let targetLine = null;
+
+    // Funktion zum Platzieren / Aktualisieren des Bootes
+    function updateBoatPosition(lat, lng, heading = 0) {
+      boatCoords = [lat, lng];
+
+      if (!boatMarker) {
+        // 1. Erster Aufruf: Bootsmarker initial auf der Karte erstellen
+        boatMarker = L.marker(boatCoords, { title: 'Freedom' }).addTo(map);
+      } else {
+        // 2. Folgende Aufrufe: Marker nur an die neue Position verschieben
+        boatMarker.setLatLng(boatCoords);
+      }
+
+      // 3. Falls eine Peillinie existiert, deren Startpunkt auf die neue Bootsposition anpassen
+      if (targetLine && targetMarker) {
+        targetLine.setLatLngs([boatCoords, targetMarker.getLatLng()]);
+      }
+    }
+
+    // INSTANT-AUFRUF BEIM LADEN DER SEITE:
+    // Erstellt den Marker sofort an den Startkoordinaten, damit er nicht fehlt
+    updateBoatPosition(boatCoords[0], boatCoords[1]);
+    
+    // Klick auf Karte setzt Koordinaten
+    map.on('click', function(e) {
+      const lat = e.latlng.lat.toFixed(6);
+      const lng = e.latlng.lng.toFixed(6);
+      const coordsString = `${lat}, ${lng}`;
+
+      // 1. SOFORT auf der Karte anzeigen (sofortiges visuelles Feedback)
+      updateTargetOnMap(coordsString);
+
+      // 2. An Home Assistant senden
+      setHaTargetCoordinates(coordsString);
+    });
+
+    function setHaTargetCoordinates(coords) {
+      fetch(`${HA_URL}/api/services/input_text/set_value`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          entity_id: ENTITY_ID,
+          value: coords
+        })
+      })
+      .then(res => {
+        if (!res.ok) {
+          console.error("HA API Fehler beim Schreiben:", res.status, res.statusText);
+        } else {
+          console.log("Ziel erfolgreich in HA gespeichert:", coords);
+        }
+      })
+      .catch(err => console.error("Netzwerkfehler beim Schreiben in HA:", err));
+    }
+
+    function pollTargetCoordinates() {
+      fetch(`${HA_URL}/api/states/${ENTITY_ID}`, {
+        headers: {
+          'Authorization': `Bearer ${HA_TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        if (data && data.state !== undefined) {
+          updateTargetOnMap(data.state);
+        }
+      })
+      .catch(err => console.error("API Error beim Polling:", err));
+    }
+
+    function updateTargetOnMap(coordsString) {
+      // Wenn Leer, unknown oder unavailable -> Marker & Peillinie von Karte entfernen
+      if (!coordsString || coordsString.trim() === '' || coordsString === 'unknown' || coordsString === 'unavailable') {
+        if (targetMarker) { map.removeLayer(targetMarker); targetMarker = null; }
+        if (targetLine) { map.removeLayer(targetLine); targetLine = null; }
+        return;
+      }
+
+      const parts = coordsString.split(',');
+      if (parts.length === 2) {
+        const lat = parseFloat(parts[0].trim());
+        const lng = parseFloat(parts[1].trim());
+
+        if (!isNaN(lat) && !isNaN(lng)) {
+          const targetCoords = [lat, lng];
+
+          // Ziel-Marker aktualisieren oder neu erstellen
+          if (targetMarker) {
+            targetMarker.setLatLng(targetCoords);
+          } else {
+            targetMarker = L.marker(targetCoords, { title: 'Ziel' }).addTo(map);
+            
+            // OPTIONAL: Klick auf den Zielmarker löscht das Ziel direkt auf der Karte & in HA
+            targetMarker.on('click', function() {
+              updateTargetOnMap('');
+              setHaTargetCoordinates('');
+            });
+          }
+
+          // Peillinie aktualisieren oder neu erstellen
+          if (targetLine) {
+            targetLine.setLatLngs([boatCoords, targetCoords]);
+          } else {
+            targetLine = L.polyline([boatCoords, targetCoords], {
+              color: '#ff9800',
+              weight: 3,
+              dashArray: '5, 10'
+            }).addTo(map);
+          }
+        }
+      }
+    }
+
+    // Polling alle 2 Sekunden, um Änderungen/Reset aus HA abzufragen
+    setInterval(pollTargetCoordinates, 2000);
+    pollTargetCoordinates();
+  </script>
+</body>
+</html>
